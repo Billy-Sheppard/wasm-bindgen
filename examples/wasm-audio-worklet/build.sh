@@ -15,9 +15,7 @@ set -ex
 RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals' \
   cargo build --target wasm32-unknown-unknown --release -Z build-std=std,panic_abort
 
-# Note the usage of `--target no-modules` here which is required for passing
-# the memory import to each wasm module.
 cargo run -p wasm-bindgen-cli -- \
-  ../../target/wasm32-unknown-unknown/release/raytrace_parallel.wasm \
+  ../../target/wasm32-unknown-unknown/release/wasm_audio_worklet.wasm \
   --out-dir . \
-  --target no-modules
+  --target web

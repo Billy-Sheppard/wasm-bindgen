@@ -1575,10 +1575,7 @@ fn get_remaining<'a>(data: &mut &'a [u8]) -> Option<&'a [u8]> {
     if data.len() == 0 {
         return None;
     }
-    let len = ((data[0] as usize) << 0)
-        | ((data[1] as usize) << 8)
-        | ((data[2] as usize) << 16)
-        | ((data[3] as usize) << 24);
+    let len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
     let (a, b) = data[4..].split_at(len);
     *data = b;
     Some(a)
@@ -1649,7 +1646,7 @@ impl StructUnpacker {
     fn read_ty(&mut self, ty: &AdapterType) -> Result<usize, Error> {
         let (quads, alignment) = match ty {
             AdapterType::I32 | AdapterType::U32 | AdapterType::F32 => (1, 1),
-            AdapterType::F64 => (2, 2),
+            AdapterType::I64 | AdapterType::U64 | AdapterType::F64 => (2, 2),
             other => bail!("invalid aggregate return type {:?}", other),
         };
         Ok(self.append(quads, alignment))

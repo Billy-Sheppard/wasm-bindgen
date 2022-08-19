@@ -6,7 +6,6 @@ use once_cell::sync::Lazy;
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use wasm_bindgen_shared as shared;
 
@@ -82,14 +81,6 @@ impl TryToTokens for ast::Program {
         // of the wasm executable. For now it's just a plain old static, but we'll
         // eventually have it actually in its own section.
 
-        static CNT: AtomicUsize = AtomicUsize::new(0);
-
-        let generated_static_name = format!(
-            "__WASM_BINDGEN_GENERATED_{}",
-            ShortHash(CNT.fetch_add(1, Ordering::SeqCst)),
-        );
-        let generated_static_name = Ident::new(&generated_static_name, Span::call_site());
-
         // See comments in `crates/cli-support/src/lib.rs` about what this
         // `schema_version` is.
         let prefix_json = format!(
@@ -98,13 +89,13 @@ impl TryToTokens for ast::Program {
             shared::version()
         );
         let encoded = encode::encode(self)?;
-        let mut bytes = Vec::new();
-        bytes.push((prefix_json.len() >> 0) as u8);
-        bytes.push((prefix_json.len() >> 8) as u8);
-        bytes.push((prefix_json.len() >> 16) as u8);
-        bytes.push((prefix_json.len() >> 24) as u8);
-        bytes.extend_from_slice(prefix_json.as_bytes());
-        bytes.extend_from_slice(&encoded.custom_section);
+        let len = prefix_json.len() as u32;
+        let bytes = [
+            &len.to_le_bytes()[..],
+            prefix_json.as_bytes(),
+            &encoded.custom_section,
+        ]
+        .concat();
 
         let generated_static_length = bytes.len();
         let generated_static_value = syn::LitByteStr::new(&bytes, Span::call_site());
@@ -125,14 +116,13 @@ impl TryToTokens for ast::Program {
         (quote! {
             #[cfg(target_arch = "wasm32")]
             #[automatically_derived]
-            #[link_section = "__wasm_bindgen_unstable"]
-            #[doc(hidden)]
-            pub static #generated_static_name: [u8; #generated_static_length] = {
+            const _: () = {
                 static _INCLUDED_FILES: &[&str] = &[#(#file_dependencies),*];
 
-                *#generated_static_value
+                #[link_section = "__wasm_bindgen_unstable"]
+                pub static _GENERATED: [u8; #generated_static_length] =
+                    *#generated_static_value;
             };
-
         })
         .to_tokens(tokens);
 
@@ -531,7 +521,7 @@ impl TryToTokens for ast::Export {
                     all(target_arch = "wasm32", not(target_os = "emscripten")),
                     export_name = #export_name,
                 )]
-                pub extern "C" fn #generated_name(#(#args),*) -> #projection::Abi {
+                pub unsafe extern "C" fn #generated_name(#(#args),*) -> #projection::Abi {
                     #start_check
                     // Scope all local variables to be destroyed after we call
                     // the function to ensure that `#convert_ret`, if it panics,
